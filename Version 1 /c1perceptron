@@ -1,0 +1,231 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <string.h>
+#include <time.h>
+
+// Perceptron yapısı
+typedef struct {
+    double eta;           // Öğrenme oranı
+    int n_iter;          // İterasyon sayısı
+    int random_state;    // Random seed
+    double *w_;          // Ağırlıklar
+    double b_;           // Bias
+    int *errors_;        // Her epoch'taki hata sayıları
+    int n_features;      // Feature sayısı
+} Perceptron;
+
+// Box-Muller yöntemi ile normal yani gaussian dağılım üretme
+double randn(double mean, double stddev) {
+    static int hasSpare = 0;
+    static double spare;
+    
+    if (hasSpare) {
+        hasSpare = 0;
+        return spare * stddev + mean;
+    }
+    
+    hasSpare = 1;
+    
+    double u = ((double) rand() / RAND_MAX) * 2.0 - 1.0;
+    double v = ((double) rand() / RAND_MAX) * 2.0 - 1.0;
+    double mag = u * u + v * v;
+    
+    while (mag >= 1.0 || mag == 0.0) {
+        u = ((double) rand() / RAND_MAX) * 2.0 - 1.0;
+        v = ((double) rand() / RAND_MAX) * 2.0 - 1.0;
+        mag = u * u + v * v;
+    }
+    
+    mag = sqrt(-2.0 * log(mag) / mag);
+    spare = v * mag;
+    return u * mag * stddev + mean;
+}
+
+// Perceptron oluşturma
+Perceptron* perceptron_create(double eta, int n_iter, int random_state) {
+    Perceptron *p = (Perceptron*)malloc(sizeof(Perceptron));
+    if (p == NULL) {
+        printf("Bellek tahsisi başarısız!\n");
+        return NULL;
+    }
+    
+    p->eta = eta;
+    p->n_iter = n_iter;
+    p->random_state = random_state;
+    p->w_ = NULL;
+    p->b_ = 0.0;
+    p->errors_ = NULL;
+    p->n_features = 0;
+    
+    return p;
+}
+
+// İki vektörün dot product'ı
+double dot_product(double *x, double *w, int size) {
+    double sum = 0.0;
+    int i, j, epoch;
+    for (i = 0; i < size; i++) {
+        sum += x[i] * w[i];
+    }
+    return sum;
+}
+
+// Net input hesaplama
+double net_input(Perceptron *p, double *X) {
+    return dot_product(X, p->w_, p->n_features) + p->b_;
+}
+
+// Tahmin fonksiyonu
+int predict(Perceptron *p, double *X) {
+    return (net_input(p, X) >= 0.0) ? 1 : 0;
+}
+
+// Eğitim fonksiyonu
+void fit(Perceptron *p, double **X, int *y, int n_examples, int n_features) {
+	int i, epoch, j;
+    // Random seed ayarla
+    srand(p->random_state);
+    
+    // Özelllik sayısını kaydet
+    p->n_features = n_features;
+    
+    // Ağırlıkları başlat
+    p->w_ = (double*)malloc(n_features * sizeof(double));
+    if (p->w_ == NULL) {
+        printf("Bellek tahsisi başarısız!\n");
+        return;
+    }
+    
+    // Normal dağılımla ağırlıkları başlat
+    for (i = 0; i < n_features; i++) {
+        p->w_[i] = randn(0.0, 0.01);
+    }
+    
+    // Bias'ı başlat
+    p->b_ = 0.0;
+    
+    // Hata dizisini başlat
+    p->errors_ = (int*)malloc(p->n_iter * sizeof(int));
+    if (p->errors_ == NULL) {
+        printf("Bellek tahsisi başarısız!\n");
+        return;
+    }
+    
+    // Her epoch için
+    for (epoch = 0; epoch < p->n_iter; epoch++) {
+        int errors = 0;
+        
+        // Her örnek için
+        for (i = 0; i < n_examples; i++) {
+            // Tahmin yap
+            int prediction = predict(p, X[i]);
+            
+            // Güncelleme hesapla
+            double update = p->eta * (y[i] - prediction);
+            
+            // Ağırlıkları güncelle
+            for (j = 0; j < n_features; j++) {
+                p->w_[j] += update * X[i][j];
+            }
+            
+            // Bias'ı güncelle
+            p->b_ += update;
+            
+            // Hata sayısını güncelle
+            if (update != 0.0) {
+                errors++;
+            }
+        }
+        
+        // Bu epoch'taki hata sayısını kaydet
+        p->errors_[epoch] = errors;
+    }
+}
+
+// Çoklu tahmin fonksiyonu
+void predict_batch(Perceptron *p, double **X, int *predictions, int n_examples) {
+	int i;
+    for (i = 0; i < n_examples; i++) {
+        predictions[i] = predict(p, X[i]);
+    }
+}
+
+// Belleği temizleme
+void perceptron_free(Perceptron *p) {
+    if (p != NULL) {
+        if (p->w_ != NULL) {
+            free(p->w_);
+        }
+        if (p->errors_ != NULL) {
+            free(p->errors_);
+        }
+        free(p);
+    }
+}
+
+// Örnek kullanım
+int main() {
+    Perceptron *p = perceptron_create(0.01, 50, 1);
+    
+    // Örnek veri (AND kapısı)
+    int n_examples = 4;
+    int n_features = 2;
+    int i;
+    // Veri matrisi
+    double **X = (double**)malloc(n_examples * sizeof(double*));
+    for (i = 0; i < n_examples; i++) {
+        X[i] = (double*)malloc(n_features * sizeof(double));
+    }
+    
+    // AND kapısı verileri
+    X[0][0] = 0; X[0][1] = 0;
+    X[1][0] = 0; X[1][1] = 1;
+    X[2][0] = 1; X[2][1] = 0;
+    X[3][0] = 1; X[3][1] = 1;
+    
+    // Etiketler
+    int y[] = {0, 0, 0, 1};
+    
+    printf("Model egitiliyor...\n");
+    fit(p, X, y, n_examples, n_features);
+    
+    printf("\nHer epoch'taki hata sayilari:\n");
+    for (i = 0; i < p->n_iter; i++) {
+        if (p->errors_[i] == 0) {
+            printf("Epoch %d: %d hata (yakinsama saglandi)\n", i+1, p->errors_[i]);
+            break;
+        }
+        if (i < 10 || i == p->n_iter - 1) {  // İlk 10 ve son epoch'u göster
+            printf("Epoch %d: %d hata\n", i+1, p->errors_[i]);
+        }
+    }
+    
+    printf("\nTahminler:\n");
+    int *predictions = (int*)malloc(n_examples * sizeof(int));
+    predict_batch(p, X, predictions, n_examples);
+    
+    for (i = 0; i < n_examples; i++) {
+        printf("Girdi: [%.1f, %.1f] -> Tahmin: %d, Gercek: %d\n", 
+               X[i][0], X[i][1], predictions[i], y[i]);
+    }
+    
+    printf("\nOgrenilen parametreler:\n");
+    printf("Agirliklar: [");
+    for (i = 0; i < n_features; i++) {
+        printf("%.4f", p->w_[i]);
+        if (i < n_features - 1) printf(", ");
+    }
+    printf("]\n");
+    printf("Bias: %.4f\n", p->b_);
+    
+    // Belleği temizle
+    for (i = 0; i < n_examples; i++) {
+        free(X[i]);
+    }
+    free(X);
+    free(predictions);
+    perceptron_free(p);
+    
+    return 0;
+}
